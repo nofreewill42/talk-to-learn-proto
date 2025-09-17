@@ -1,17 +1,14 @@
 # talk-to-learn-proto
 
-Minimal web prototype to try a turn-based voice UI.
-Each table row is one turn:
-record -> STT -> Ask LLM -> TTS.
+Minimal web prototype for a turn-based voice UI. Each table row is one turn:
+Record -> STT -> Ask LLM -> TTS.
 
-No backend required. Uses the browser MediaRecorder API and dummy handlers.
+Works out of the box with dummy providers. You can switch to real backends without changing the UI.
 
 ## Run
 
-You must serve the file from HTTPS or localhost for mic permissions. Install python if it is not installed already.
+You must serve from HTTPS or localhost for the mic to work.
 
 ```bash
-# from the repo root
 python -m http.server 8000
-# then open:
-# http://localhost:8000/recorder.html
+# open with http://localhost:8000/recorder.html

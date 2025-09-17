@@ -1,4 +1,9 @@
-<!doctype html><meta charset="utf-8"><title>Proto Table Recorder - single row per turn</title>
+<!doctype html><meta charset="utf-8"><title>Proto Table Recorder - pluggable providers</title>
+<div style="font-family:sans-serif;font-size:14px;margin:6px 0">
+  STT <select id=sttSel><option value=dummy selected>dummy</option><option value=server>/stt</option></select>
+  LLM <select id=llmSel><option value=dummy selected>dummy</option><option value=server>/llm</option></select>
+  TTS <select id=ttsSel><option value=dummy selected>reuse recorded audio</option><option value=server>/tts</option></select>
+</div>
 <table id=tbl border=1 cellpadding=6 style="border-collapse:collapse;font-family:sans-serif;font-size:14px">
   <thead>
     <tr>
@@ -9,8 +14,32 @@
 </table>
 <script>
 const body=document.getElementById('body');
+const sttSel=document.getElementById('sttSel');
+const llmSel=document.getElementById('llmSel');
+const ttsSel=document.getElementById('ttsSel');
+
 function pick(){for(const m of ['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/mp4','audio/webm']) if(window.MediaRecorder&&MediaRecorder.isTypeSupported(m)) return m; return ''}
 function btn(txt,fn){ const b=document.createElement('button'); b.textContent=txt; b.onclick=fn; return b }
+
+// provider functions - swap implementations without touching the table code
+async function runSTT(blob){
+  if(sttSel.value==='dummy') return 'dummy transcription';
+  const fd=new FormData(); fd.append('audio', blob, 'rec.webm');
+  const r=await fetch('/stt',{method:'POST',body:fd});
+  try{ const j=await r.json(); return j.text||'' }catch{ return '' }
+}
+async function runLLM(text){
+  if(llmSel.value==='dummy') return 'dummy response: '+(text||'');
+  const r=await fetch('/llm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+  try{ const j=await r.json(); return j.reply||'' }catch{ return '' }
+}
+async function runTTS(text, fallbackBlob){
+  if(ttsSel.value==='dummy') return URL.createObjectURL(fallbackBlob);
+  const r=await fetch('/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+  const b=await r.blob();
+  return URL.createObjectURL(b);
+}
+
 function addTurnRow(){
   const tr=document.createElement('tr');
   const cRec=tr.insertCell();
@@ -23,7 +52,6 @@ function addTurnRow(){
   const cTTSA=tr.insertCell();
   const cPlus=tr.insertCell();
 
-  // per row state
   let rec=null, stream=null, chunks=[], lastBlob=null;
 
   const recordBtn=btn('Record', async()=>{
@@ -34,51 +62,38 @@ function addTurnRow(){
         const mt=pick(); chunks=[]; rec=new MediaRecorder(stream, mt?{mimeType:mt}:{})
         rec.ondataavailable=e=>e.data&&e.data.size&&chunks.push(e.data);
         rec.onstop=()=>{
-          const type=rec.mimeType||'audio/webm';
-          lastBlob=new Blob(chunks,{type});
+          const type=rec.mimeType||'audio/webm'; lastBlob=new Blob(chunks,{type});
           const url=URL.createObjectURL(lastBlob);
           const a=document.createElement('audio'); a.controls=true; a.src=url; cAudio.innerHTML=''; cAudio.append(a);
-          // stop tracks
           if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null }
         };
-        rec.start();
-        recordBtn.textContent='Stop';
+        rec.start(); recordBtn.textContent='Stop';
       }catch(e){ alert('Mic permission needed - use HTTPS or http://localhost'); }
       finally{ recordBtn.disabled=false }
-    } else {
-      rec.stop();
-      recordBtn.textContent='Record';
-    }
+    } else { rec.stop(); recordBtn.textContent='Record'; }
   });
   cRec.append(recordBtn);
 
-  // STT - dummy
-  cSTT.append(btn('Transcribe', ()=>{
-    cTxt.textContent='dummy transcription';
+  cSTT.append(btn('Transcribe', async()=>{
+    if(!lastBlob){ alert('Record first'); return }
+    cTxt.textContent = await runSTT(lastBlob);
   }));
 
-  // Ask LLM - dummy
-  cAsk.append(btn('Ask LLM', ()=>{
-    const t=cTxt.textContent||'';
-    cLLM.textContent = 'dummy response: '+t;
+  cAsk.append(btn('Ask LLM', async()=>{
+    const t=cTxt.textContent||''; cLLM.textContent = await runLLM(t);
   }));
 
-  // TTS - dummy using recorded audio
-  cTTS.append(btn('TTS', ()=>{
-    if(!lastBlob){ alert('Record first to have dummy TTS audio'); return }
-    const a=document.createElement('audio'); a.controls=true; a.src=URL.createObjectURL(lastBlob);
-    cTTSA.innerHTML=''; cTTSA.append(a);
+  cTTS.append(btn('TTS', async()=>{
+    if(!lastBlob){ alert('Record first'); return }
+    const url = await runTTS(cTxt.textContent||'', lastBlob);
+    const a=document.createElement('audio'); a.controls=true; a.src=url; cTTSA.innerHTML=''; cTTSA.append(a);
   }));
 
-  // + add new row
   cPlus.append(btn('+', addTurnRow));
-
   body.append(tr);
 }
 
 if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
   const tr=document.createElement('tr'); tr.insertCell().textContent='Not supported'; body.append(tr);
-} else {
-  addTurnRow();
-}
+} else { addTurnRow(); }
 </script>
