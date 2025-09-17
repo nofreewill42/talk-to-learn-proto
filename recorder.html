@@ -1,0 +1,32 @@
+<!doctype html><meta charset="utf-8"><title>Minimal Voice Recorder</title>
+<button id=b>Start recording</button> <span id=t>00:00</span>
+<div id=p style="display:none;margin-top:8px">
+  <audio id=a controls></audio><br>
+  <a id=d download>Download</a>
+</div>
+<script>
+let rec, stream, chunks=[], timer, started=0;
+const b=document.getElementById('b'), t=document.getElementById('t'), a=document.getElementById('a'), d=document.getElementById('d'), p=document.getElementById('p');
+function fmt(s){s|=0;return String((s/60)|0).padStart(2,'0')+':'+String((s%60)|0).padStart(2,'0')}
+function pick(){for(const m of ['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/mp4','audio/webm']) if(window.MediaRecorder&&MediaRecorder.isTypeSupported(m)) return m; return ''}
+function ext(m){return m.includes('ogg')?'ogg':m.includes('mp4')?'m4a':'webm'}
+function startTimer(){started=Date.now(); t.textContent='00:00'; clearInterval(timer); timer=setInterval(()=>t.textContent=fmt((Date.now()-started)/1000),250)}
+function stopTimer(){clearInterval(timer)}
+
+b.onclick=async()=>{
+  if(!rec||rec.state==='inactive'){
+    try{
+      b.disabled=true; stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      const mt=pick(); chunks=[]; rec=new MediaRecorder(stream, mt?{mimeType:mt}:{})
+      rec.ondataavailable=e=>e.data&&e.data.size&&chunks.push(e.data);
+      rec.onstop=()=>{ const type=rec.mimeType||'audio/webm'; const blob=new Blob(chunks,{type}); const url=URL.createObjectURL(blob);
+        a.src=url; a.load(); p.style.display=''; const name='rec_'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext(type);
+        d.href=url; d.download=name; d.textContent='Download '+name; stream.getTracks().forEach(x=>x.stop()); };
+      rec.start(); startTimer(); b.textContent='Stop recording';
+    }catch(e){ alert('Mic access failed - use HTTPS or http://localhost and allow microphone'); }
+    finally{ b.disabled=false }
+  } else { rec.stop(); stopTimer(); b.textContent='Start recording'; }
+};
+if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ b.disabled=true; b.textContent='Not supported'; }
+</script>
+<!-- Use a static server - for example: python -m http.server and open http://localhost:8000 -->
